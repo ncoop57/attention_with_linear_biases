@@ -753,13 +753,21 @@ class TransformerDecoder(FairseqIncrementalDecoder):
  
         maxpos = args.tokens_per_sample
         attn_heads = args.decoder_attention_heads
-        self.slopes = torch.Tensor(get_slopes(attn_heads))
+        self.slopes = torch.Tensor(get_slopes(attn_heads // 2))
         #In the next line, the part after the * is what constructs the diagonal matrix (right matrix in Figure 3 in the paper). 
         #If you run it you'll see that it doesn't exactly print out the same matrix as we have in Figure 3, but one where all rows are identical.
         #This works because the softmax operation is invariant to translation, and our bias functions are always linear. 
-        self.alibi = self.slopes.unsqueeze(1).unsqueeze(1) * torch.arange(maxpos).unsqueeze(0).unsqueeze(0).expand(attn_heads, -1, -1)
-        self.alibi = self.alibi.view(attn_heads, 1, maxpos)
-        self.alibi = self.alibi.repeat(args.max_tokens//maxpos, 1, 1)  # batch_size, 1, 1
+        # self.alibi = self.slopes.unsqueeze(1).unsqueeze(1) * torch.arange(maxpos).unsqueeze(0).unsqueeze(0).expand(attn_heads, -1, -1)
+        # self.alibi = self.alibi.view(attn_heads, 1, maxpos)
+        # self.alibi = self.alibi.repeat(args.max_tokens//maxpos, 1, 1)  # batch_size, 1, 1
+        alibi_rec = self.slopes.unsqueeze(1).unsqueeze(1) * torch.arange(maxpos).unsqueeze(0).unsqueeze(0).expand(attn_heads // 2, -1, -1)
+        alibi_past = self.slopes.unsqueeze(1).unsqueeze(1) * torch.arange(maxpos - 1, -1, -1).unsqueeze(0).unsqueeze(0).expand(attn_heads // 2, -1, -1)
+
+        alibi_rec = alibi_rec.view(attn_heads // 2, 1, maxpos)
+        alibi_rec = alibi_rec.repeat(max_tokens // maxpos, 1, 1)
+        alibi_past = alibi_past.view(attn_heads // 2, 1, maxpos)
+        alibi_past = alibi_past.repeat(max_tokens // maxpos, 1, 1)
+        self.alibi = torch.cat([alibi_rec, alibi_past])
 
 
     def build_output_projection(self, args, dictionary, embed_tokens):
